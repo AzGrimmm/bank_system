@@ -1,10 +1,7 @@
 from datetime import datetime
 import re
 from tabulate import tabulate
-
-cpfs_cadastrados = set()
-clientes = []
-contas_corrente = []
+from classes import system
 
 
 def capsula_ambiente(nome):
@@ -27,96 +24,48 @@ def pedir_dado(mensagem):
     return dado
 
 
-def transacoes(cliente, conta):
-    @capsula_ambiente("Menu Transações")
+def transacoes(conta):
+    @capsula_ambiente("Transações")
     def menu_transacoes():
-        menu = """
-    \n\t[d] - Deposito
-    \t[s] - Saque
-    \t[e] - Extrato
-    \t[q] - voltar
-    """
-        print(menu)
-
-    """
-    Funções para gerenciar transações bancárias de um cliente.
-    """
+        dados = """\t[d] Deposito \t[s] Saque
+\t[e] Extrato  \t[q] Voltar"""
+        print(f"Saldo atual: R${conta._saldo:.2f}")
+        print(dados)
 
     @capsula_ambiente("Extrato")
-    def extrato(saldo, transacoes):
+    def extrato():
         """Exibe o saldo atual e as transações realizadas."""
-        print(f"\tsaldo atual = R${saldo:.2f}")
-        for transacao in transacoes:
-            for key, value in transacao.items():
-                print(f"\ttransação: {key}: R${value:.2f}")
-
-    def deposito():
-        """Solicita um valor de depósito ao usuário, garantindo entrada válida."""
-        while True:
-            try:
-                valor = float(input("Valor: R$"))
-                if valor == -1:
-                    return False
-                if valor <= 0:
-                    raise ValueError("O valor deve ser positivo e maior que 0.")
-                return valor
-            except ValueError as e:
-                print(f"ERRO! {e}")
-
-    def saque(saldo, num_saques, soma_saques_diarios):
-        """Gerencia a operação de saque, respeitando os limites diários e individuais."""
-        LIMITE_SAQUES = 3
-        LIMITE_POR_SAQUE = 500.0
-        LIMITE_SAQUE_DIA = 1500.0
-
-        if saldo <= 0:
-            print("Operação falhou! => Sem saldo.")
-            return False
-        if num_saques >= LIMITE_SAQUES:
-            print(f"Operação falhou! => Limite de {LIMITE_SAQUES} saques diários alcançado!")
-            return False
-
-        while True:
-            try:
-                valor = float(input("Valor (até R$500): R$"))
-                if valor == -1:
-                    return False
-                if valor <= 0:
-                    raise ValueError("O valor informado deve ser positivo.")
-                if valor > LIMITE_POR_SAQUE:
-                    raise ValueError("Saque limitado a R$500 por operação.")
-                if valor + soma_saques_diarios > LIMITE_SAQUE_DIA:
-                    raise ValueError(f"O valor excede o limite diário de R${LIMITE_SAQUE_DIA}.")
-                if saldo < valor:
-                    raise ValueError("Saldo insuficiente.")
-                return valor
-            except ValueError as e:
-                print(f"ERRO! {e}")
+        dados = [[transacao["tipo"], transacao["valor"], transacao["data"]] for transacao in conta._historico.transacoes]
+        print(f"Saldo atual: R${conta._saldo:.2f}")
+        print(tabulate(dados, headers=["Tipo", "Valor", "Data"], tablefmt="grid"))
 
     while True:
-        conta["i"]["saldo"]
         menu_transacoes()
         opt = input("=> Opção: ")
         if opt == "d":
-            valor = deposito()
-            if valor is False:
-                print("Saindo da operação")
-                continue
-            conta["i"]["saldo"] += valor
-            conta["i"]["transacoes"].append({"deposito": valor})
-            atualizar_conta_corrente(cliente, conta)
-            print(f"saldo atual = R${conta['i']['saldo']:.2f}")
+            try:
+                valor = float(input("Valor: R$"))
+                system.Deposito(valor).registrar(conta)
+            except (ValueError):
+                print("Operação falhou! valor inválido!")
         elif opt == "s":
-            valor = saque(conta["i"]["saldo"], conta["i"]["num_saques"], conta["i"]["soma_saques_diarios"])
-            if valor is False:
+            excedeu_limite_saques = conta.numero_saques >= conta.LIMITE_SAQUES
+            if conta._saldo <= 0:
+                print("Operação falhou! Sem Saldo")
                 continue
-            conta["i"]["saldo"] -= valor
-            conta["i"]["num_saques"] += 1
-            conta["i"]["transacoes"].append({"saque": valor})
-            conta["i"]["soma_saques_diarios"] += valor
-            atualizar_conta_corrente(cliente, conta)
+            elif excedeu_limite_saques:
+                print(f"Operação falhou! => Limite de {conta.LIMITE_SAQUES} saques diários alcançado!")
+                continue
+            try:
+                valor = float(input("Valor: R$"))
+                system.Saque(valor).registrar(conta)
+            except (ValueError):
+                print("Operação falhou! valor inválido!")
         elif opt == "e":
-            extrato(conta["i"]["saldo"], transacoes=conta["i"]["transacoes"])
+            try:
+                extrato()
+            except ():
+                print("Erro ao tentar exibir o extrato!")
         elif opt == "q":
             print("Fechando sistema de transações...")
             break
@@ -124,36 +73,28 @@ def transacoes(cliente, conta):
             print("ERRO! Escolha uma opção válida!")
 
 
-def buscar_conta_corrente(cliente, contas_corrente):
-    if len(cliente["contas"]) == 0:
+def buscar_conta_corrente(cliente):
+    if len(cliente.contas) == 0:
         return None
     else:
-        for i, c in enumerate(cliente["contas"]):
-            print(f"[{i}] - Número da conta: {c['nro']}, Agência: {c['agencia']}")
+        for i, c in enumerate(cliente.contas):
+            print(f"[{i}] - Número da conta: {c.numero} Agência: {c.agencia}")
 
         while True:
             try:
                 conta_escolhida = int(input("Qual conta quer acessar?: "))
-                if 0 <= conta_escolhida < len(cliente["contas"]):
-                    nro_conta = cliente["contas"][conta_escolhida]["nro"]
-                    for conta in contas_corrente:
-                        if conta["nro"] == nro_conta:
-                            return conta
-                    print("Conta não encontrada!")
+                if 0 <= conta_escolhida < len(cliente.contas):
+                    return cliente.contas[conta_escolhida]
                 else:
                     print("Índice inválido. Tente novamente.")
             except ValueError:
                 print("Entrada inválida! Digite um número válido.")
 
 
-def atualizar_conta_corrente(cliente, conta):
-    for c in contas_corrente:
-        if cliente["cpf"] == c["cpf"]:
-            c["i"] = conta["i"]
-    print("sucesso")
+def main():
+    clientes = []
+    contas_corrente = []
 
-
-def area_usuario():
     @capsula_ambiente("Menu Usuário")
     def menu_usuario():
         menu_cliente = """
@@ -168,7 +109,7 @@ def area_usuario():
     def menu_conta_usuario():
         menu = """
 \t[a] - acessar conta corrente
-\t[c] - cadastrar conta correte
+\t[c] - cadastrar conta corrente
 \t[q] - sair
 """
         print(menu)
@@ -177,7 +118,7 @@ def area_usuario():
         nome_completo = nome_completo.strip()
         if len(nome_completo.split()) < 2:
             return False
-        if not all(palavra.isalpha() and palavra[0].isupper() for palavra in nome_completo.split()):
+        if not all(palavra.isalpha() for palavra in nome_completo.split()):
             return False
         if re.search(r'[^a-zA-ZÀ-ÖØ-öø-ÿ ]', nome_completo):
             return False
@@ -194,7 +135,7 @@ def area_usuario():
         return cpf[-2:] == f"{primeiro_digito}{segundo_digito}"
 
     def validar_endereco(endereco):
-        padrao = r"^([\w\s\.]+) - (\d+\w?) - ([\w\s]+) - ([\w\s]+)\/([A-Z]{2})$"
+        padrao = r"^([\w\s\.]+) - (\d+\w?) - ([\w\s]+) - ([\w\s]+)\/([a-zA-Z]{2})$"
 
         match = re.match(padrao, endereco)
 
@@ -209,42 +150,46 @@ def area_usuario():
             return True
         return False
 
+    def filtrar_cliente(cpf, clientes):
+        clientes_filtrados = [cliente for cliente in clientes if cliente.cpf == cpf]
+        return clientes_filtrados[0] if clientes_filtrados else None
+
     @capsula_ambiente("Cadastro de usuário")
-    def cadastro_usuario():
+    def cadastrar_usuario():
         cliente = {}
 
         while True:
             while True:
-                cpf = pedir_dado("CPF - 's' para sair: ")
+                cpf = pedir_dado("CPF ('s' para sair): ")
                 if cpf is None:
                     return False
                 if not validar_cpf(cpf):
                     print("CPF inválido! Tente novamente!")
                     continue
 
-                elif cpf in cpfs_cadastrados:  # Só verifica se o CPF já existe depois de validar
+                elif filtrar_cliente(cpf, clientes):  # Só verifica se o CPF já existe depois de validar
                     print("CPF já cadastrado! Tente novamente!")
                     continue
                 else:
                     cliente["cpf"] = cpf  # Agora só chega aqui se o CPF for válido e ainda não existir
                     break  # Sai do loop após um CPF válido ser cadastrado
             while True:
-                nome = pedir_dado("Nome Completo - 's' para sair: ")
+                nome = pedir_dado("Nome Completo ('s' para sair): ")
                 if nome is None:
                     return False
                 if not validar_nome_completo(nome):
                     print("Nome Completo inválido")
                     continue
-                cliente["nome"] = nome
+                cliente["nome"] = nome.title()
                 break
             while True:
-                dia_nasc = pedir_dado("Dia do nascimento - 's' para sair: ")
+                dia_nasc = pedir_dado("Dia do nascimento ('s' para sair): ")
                 if dia_nasc is None:
                     return False
-                mes_nasc = pedir_dado("Mês do nascimento - 's' para sair: ")
+                mes_nasc = pedir_dado("Mês do nascimento ('s' para sair): ")
                 if mes_nasc is None:
                     return False
-                ano_nasc = pedir_dado("Ano do nascimento - 's' para sair: ")
+                ano_nasc = pedir_dado("Ano do nascimento ('s' para sair): ")
                 if ano_nasc is None:
                     return False
                 data_nasc_str = (dia_nasc + "/" + mes_nasc + "/" + ano_nasc)
@@ -258,39 +203,34 @@ def area_usuario():
                     cliente["nascimento"] = data_nasc_str
                     break
             while True:
-                print("==Endereço==")
-                logradouro = pedir_dado("Logradouro - 's' para sair: ")
+                print("Endereço:")
+                logradouro = pedir_dado("Logradouro ('s' para sair): ")
                 if logradouro is None:
                     return False
-                nro = pedir_dado("nro - 's' para sair: ")
+                nro = pedir_dado("nro ('s' para sair): ")
                 if nro is None:
                     return False
-                bairro = pedir_dado("bairro - 's' para sair: ")
+                bairro = pedir_dado("bairro ('s' para sair): ")
                 if bairro is None:
                     return False
-                cidade = pedir_dado("cidade - 's' para sair: ")
+                cidade = pedir_dado("cidade ('s' para sair): ")
                 if cidade is None:
                     return False
-                sigla_estado = pedir_dado("estado(sigla) - 's' para sair: ")
+                sigla_estado = pedir_dado("estado(sigla) ('s' para sair): ")
                 if sigla_estado is None:
                     return False
                 endereco = f"{logradouro} - {nro} - {bairro} - {cidade}/{sigla_estado}"
                 validacao = validar_endereco(endereco)
                 if validacao:
-                    cliente["endereco"] = endereco
+                    cliente["endereco"] = endereco.title()
                     break
                 else:
                     print("Endereço inválido!")
                     continue
-            cliente["contas"] = []
             break
-        return cliente if cliente else {}
-
-    def cadastrar_conta_corrente(cpf):
-        agencia = "0001"
-        nro_conta = len(contas_corrente) + 1 if len(contas_corrente) > 0 else 1
-        nova_conta = {"agencia": agencia, "nro": nro_conta, "cpf": cpf, "i": {"saldo": 0, "transacoes": [], "soma_saques_diarios": 0, "num_saques": 0}}
-        return nova_conta
+        obj_cliente = system.PessoaFisica(cliente["nome"], cliente["cpf"], cliente["nascimento"], cliente["endereco"])
+        clientes.append(obj_cliente)
+        return obj_cliente if obj_cliente else {}
 
     @capsula_ambiente("Acesso ao usuário")
     def acessar_usuario():
@@ -299,56 +239,51 @@ def area_usuario():
             if cpf is None:
                 break
             if validar_cpf(cpf):
-                if cpf in cpfs_cadastrados:
-                    for cliente in clientes:
-                        if cliente["cpf"] == cpf:
-                            tabela = [[chave, valor] for chave, valor in cliente.items()]
-                            print(tabulate(tabela, headers="keys", tablefmt="grid"))
-                            while True:
-                                menu_conta_usuario()
-                                opt = input("Opção: ")
-                                match opt:
-                                    case "a":
-                                        conta = buscar_conta_corrente(cliente, contas_corrente)
-                                        if conta is None:
-                                            print("Nenhuma conta encontrarda! crie uma conta corrente com a opção [c].")
-                                            continue
-                                        else:
-                                            try:
-                                                transacoes(cliente, conta)
-                                            except ():
-                                                print("Erro ao tentar acessar conta corrente!")
-                                                continue
-                                            else:
-                                                print("sucesso!")
-                                    case "c":
-                                        try:
-                                            nova_conta = cadastrar_conta_corrente(cliente["cpf"])
-                                        except ():
-                                            print("Ocorreu um erro ao tentar cadastrar a conta!")
-                                            continue
-                                        else:
-                                            contas_corrente.append(nova_conta)
-                                            dados_conta = {"nro": nova_conta["nro"], "agencia": nova_conta["agencia"]}
-                                            cliente["contas"].append(dados_conta)
-                                            print(nova_conta)
-                                            print("conta cadastrada com sucesso!")
-                                    case "q":
-                                        print("saindo...")
-                                        break
-                                    case _:
-                                        print("opção inválida!")
-                                        continue
+                cliente = filtrar_cliente(cpf, clientes)
+                if not cliente:
+                    print("Cliente não encontrado!")
+                    break
                 else:
-                    print("cpf não encontrado!")
-                    continue
+                    print(f"Olá {cliente.nome.split(" ")[0]}")
+                    while True:
+                        menu_conta_usuario()
+                        opt = input("Opção: ")
+                        match opt:
+                            case "a":
+                                conta = buscar_conta_corrente(cliente)
+                                if conta is None:
+                                    print("Nenhuma conta encontrarda! crie uma conta corrente com a opção [c].")
+                                    continue
+                                else:
+                                    try:
+                                        transacoes(conta)
+                                    except ():
+                                        print("Erro ao tentar acessar conta corrente!")
+                                        continue
+                            case "c":
+                                try:
+                                    conta = system.ContaCorrente.nova_conta(cliente, len(contas_corrente) + 1)
+                                except ():
+                                    print("Ocorreu um erro ao tentar cadastrar a conta!")
+                                    continue
+                                else:
+                                    contas_corrente.append(conta)
+                                    cliente.contas.append(conta)
+                                    print("conta cadastrada com sucesso!")
+                            case "q":
+                                print("saindo...")
+                                break
+                            case _:
+                                print("opção inválida!")
+                                continue
             else:
                 print("CPF inválido! Tente novamente!")
                 continue
             break
 
     def listar_clientes():
-        print(tabulate(clientes, headers="keys", tablefmt="grid"))
+        dados = [[c.nome, c.cpf, c.nascimento, c.endereco] for c in clientes]
+        print(tabulate(dados, headers=["Nome", "CPF", "nascimento", "Endereço"], tablefmt="grid"))
 
     while True:
         menu_usuario()
@@ -362,15 +297,12 @@ def area_usuario():
                     continue
             case "c":
                 try:
-                    cliente = cadastro_usuario()
+                    cliente = cadastrar_usuario()
+                    if cliente:
+                        print(f"cliente {cliente.nome.split(" ")[0]} cadastrado com sucesso!")
                 except ():
                     print("Erro ao tentar cadastrar cliente!")
                     continue
-                else:
-                    if cliente:
-                        cpfs_cadastrados.add(cliente["cpf"])
-                        clientes.append(cliente)
-                        print("cliente cadastrado com sucesso!")
             case "l":
                 if len(clientes) == 0:
                     print("nenhum CPF cadastrado")
@@ -384,4 +316,4 @@ def area_usuario():
                 continue
 
 
-area_usuario()
+main()
